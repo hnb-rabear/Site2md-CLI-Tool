@@ -46,11 +46,16 @@ logger = setup_logger()
 # Helper: Discover URLs
 # ---------------------------------------------------------------------------
 
-def _discover_urls(url: str, depth: int) -> list[str]:
+def _discover_urls(
+    url: str,
+    depth: int,
+    include: Optional[list[str]] = None,
+    exclude: Optional[list[str]] = None
+) -> list[str]:
     """Find URLs via sitemap or recursive crawl."""
     if depth > 0:
         typer.echo(f"[*] Recursive crawl mode (depth={depth})...")
-        return crawl_recursive(url, depth)
+        return crawl_recursive(url, depth, include, exclude)
 
     typer.echo("[*] Searching sitemap...")
     sitemap_url = discover_sitemap_url(url)
@@ -88,6 +93,7 @@ def _process_page(
     ai_summary: bool,
     fmt: str,
     collected_at: str,
+    min_length: int,
 ) -> Optional[dict]:
     """
     Xử lý kết quả fetch của một trang.
@@ -107,8 +113,8 @@ def _process_page(
 
     # Extract markdown content
     content = extract_markdown(cleaned_html, url=url, fallback_html=raw_html)
-    if not content:
-        logger.warning(f"[SKIPPED] {url} — Không extract được nội dung")
+    if not content or len(content.strip()) < min_length:
+        logger.warning(f"[SKIPPED] {url} — Nội dung quá ngắn hoặc rỗng (< {min_length} chars)")
         return None
 
     # AI refinement
@@ -160,15 +166,50 @@ async def _run(
     ai_clean: bool,
     ai_summary: bool,
     dry_run: bool,
+    min_length: int,
+    exclude: Optional[list[str]],
+    include: Optional[list[str]],
 ):
     collected_at = datetime.now().astimezone().isoformat()
 
     # ── Phase 1: URL Discovery ──────────────────────────────────────────────
-    urls = _discover_urls(url, depth)
+    urls = _discover_urls(url, depth, include, exclude)
 
     if not urls:
         typer.echo("    ERR  No URLs to crawl.")
         raise typer.Exit(1)
+
+    # ── Filter Includes/Excludes ────────────────────────────────────────────
+    # Include filtering: URL must contain at least one of the include patterns
+    if include:
+        filtered_urls_inc = []
+        for u in urls:
+            if any(inc in u for inc in include):
+                filtered_urls_inc.append(u)
+                
+        included_count = len(filtered_urls_inc)
+        typer.echo(f"[*] Kept {included_count} URLs matching --include patterns")
+        urls = filtered_urls_inc
+        
+        if not urls:
+            typer.echo("    ERR  No URLs left to crawl after applying includes.")
+            raise typer.Exit(1)
+
+    # Exclude filtering: URL must NOT contain any of the exclude patterns
+    if exclude:
+        filtered_urls_exc = []
+        for u in urls:
+            if not any(ex in u for ex in exclude):
+                filtered_urls_exc.append(u)
+        
+        excluded_count = len(urls) - len(filtered_urls_exc)
+        if excluded_count > 0:
+            typer.echo(f"[*] Excluded {excluded_count} URLs matching --exclude patterns")
+        urls = filtered_urls_exc
+
+        if not urls:
+            typer.echo("    ERR  No URLs left to crawl after applying excludes.")
+            raise typer.Exit(1)
 
     # ── Dry Run ─────────────────────────────────────────────────────────────
     if dry_run:
@@ -184,7 +225,9 @@ async def _run(
         typer.echo(f"  Tong URL     : {len(urls)}")
         typer.echo(f"  Format       : {fmt}")
         typer.echo(f"  Split limit  : {split_limit:,} chars")
-        typer.echo(f"  Output       : {output}.{fmt}")
+        import os
+        base_name = os.path.basename(output)
+        typer.echo(f"  Output       : {output}/{base_name}.{fmt}")
         typer.echo(f"  Est. size    : ~{est_chars:,} chars ({est_parts} part(s))")
         typer.echo(f"  Est. time    : ~{est_time:.0f}s")
         typer.echo("-" * 50)
@@ -205,12 +248,21 @@ async def _run(
         with tqdm(total=len(urls), desc="Fetching", unit="page", ncols=80) as pbar:
             results = await fetcher.fetch_all(urls, progress_callback=pbar.update)
 
-    # ── Phase 3: Extract & Format ───────────────────────────────────────────
     typer.echo("\n[*] Extracting and formatting content...")
 
+    seen_hashes = set()
+    import hashlib
+
     for result in tqdm(results, desc="Processing", unit="page", ncols=80):
-        page = _process_page(result, selector, ai_clean, ai_summary, fmt, collected_at)
+        page = _process_page(result, selector, ai_clean, ai_summary, fmt, collected_at, min_length)
         if page:
+            # MD5 Deduplication
+            content_hash = hashlib.md5(page["content"].encode('utf-8')).hexdigest()
+            if content_hash in seen_hashes:
+                logger.warning(f"[SKIPPED] {page['url']} — Nội dung hoàn toàn trùng lặp (Duplicate)")
+                continue
+            
+            seen_hashes.add(content_hash)
             pages_data.append(page)
 
     typer.echo(f"\n  [OK] Extracted: {len(pages_data)}/{len(urls)} pages")
@@ -223,7 +275,7 @@ async def _run(
         raise typer.Exit(1)
 
     # ── Phase 4: Write Output ───────────────────────────────────────────────
-    typer.echo(f"\n[*] Writing {output}.{fmt}...")
+    typer.echo(f"\n[*] Writing to directory {output}/ ...")
 
     with FileSplitter(output, fmt=fmt, split_limit=split_limit) as splitter:
         # Ghi ToC (chỉ cho md và txt)
@@ -260,7 +312,7 @@ async def _run(
 @app.command()
 def main(
     url: str = typer.Argument(..., help="URL gốc cần crawl (VD: https://docs.example.com/)"),
-    output: str = typer.Option("output", "--output", "-o", help="Tên file đầu ra (không extension)"),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Tên thư mục và prefix file (mặc định dựa theo URL)"),
     fmt: str = typer.Option("md", "--format", "-f", help=f"Format output: {', '.join(VALID_FORMATS)}"),
     concurrency: int = typer.Option(5, "--concurrency", "-c", help="Số request song song"),
     use_cache: bool = typer.Option(False, "--cache", help="Bật HTTP cache cục bộ (24h)"),
@@ -270,6 +322,9 @@ def main(
     ai_clean: bool = typer.Option(False, "--ai-clean", help="Dùng Deepseek AI làm sạch Markdown"),
     ai_summary: bool = typer.Option(False, "--ai-summary", help="Dùng AI tạo tóm tắt đầu mỗi trang"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview: liệt kê URLs và ước tính, không crawl"),
+    min_length: int = typer.Option(50, "--min-length", help="Bỏ qua các trang có độ dài nội dung ngắn hơn mức này"),
+    exclude: Optional[list[str]] = typer.Option(None, "--exclude", "-x", help="Bỏ qua các URL chứa chuỗi này (VD: -x zh-CN -x /tag/)"),
+    include: Optional[list[str]] = typer.Option(None, "--include", "-i", help="CHỈ giữ lại các URL chứa chuỗi này (VD: -i /docs/)"),
 ):
     """
     Site2MD -- Crawl website and output Markdown optimized for NotebookLM / RAG.
@@ -281,6 +336,21 @@ def main(
       python main.py https://docs.example.com --depth 2 --selector "article.content"
       python main.py https://docs.example.com --dry-run
     """
+    # Generate default output name based on URL if not provided
+    if not output:
+        import re
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        # e.g., docs.python.org/3/ -> docs.python.org_3
+        base = parsed.netloc + parsed.path.replace('/', '_')
+        base = re.sub(r'[^a-zA-Z0-9_-]', '_', base).strip('_')
+        base = re.sub(r'_+', '_', base)
+        output = base if base else "default_scrape"
+
+    import os
+    # Move all scrape folders inside the global 'output' folder
+    output = os.path.join("output", output)
+
     # Validate format
     if fmt not in VALID_FORMATS:
         typer.echo(typer.style(
@@ -303,7 +373,10 @@ def main(
 
     typer.echo(typer.style("\n[*] Site2MD — Starting", bold=True))
     typer.echo(f"  Target : {url}")
-    typer.echo(f"  Format : {fmt}  |  Output: {output}.{fmt}")
+    # Replace the redundant {output}/{output} log because output already contains the parent folder
+    import os
+    base_name = os.path.basename(output)
+    typer.echo(f"  Format : {fmt}  |  Output: {output}/{base_name}.{fmt}")
     typer.echo(f"  Cache  : {'on' if use_cache else 'off'}  |  Concurrency: {concurrency}")
     if selector:
         typer.echo(f"  Selector: {selector}")
@@ -323,6 +396,9 @@ def main(
         ai_clean=ai_clean,
         ai_summary=ai_summary,
         dry_run=dry_run,
+        min_length=min_length,
+        exclude=exclude,
+        include=include,
     ))
 
 

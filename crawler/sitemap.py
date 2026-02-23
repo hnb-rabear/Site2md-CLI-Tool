@@ -6,6 +6,7 @@ from typing import Optional
 from urllib.parse import urljoin, urlparse
 
 import httpx
+import typer
 from bs4 import BeautifulSoup
 
 from config import SKIP_EXTENSIONS, USER_AGENT
@@ -22,9 +23,18 @@ _HEADERS = {"User-Agent": USER_AGENT}
 # ---------------------------------------------------------------------------
 
 def _is_skippable(url: str) -> bool:
-    """Trả True nếu URL trỏ tới file media/binary không phải text."""
+    """Trả True nếu URL trỏ tới file media/binary hoặc thuộc danh sách Regex bị chặn."""
+    from config import IGNORE_URL_PATTERNS
+
     path = urlparse(url).path.lower()
-    return any(path.endswith(ext) for ext in SKIP_EXTENSIONS)
+    if any(path.endswith(ext) for ext in SKIP_EXTENSIONS):
+        return True
+        
+    for pattern in IGNORE_URL_PATTERNS:
+        if re.search(pattern, url, re.IGNORECASE):
+            return True
+            
+    return False
 
 
 def _same_domain(url: str, base: str) -> bool:
@@ -137,7 +147,12 @@ def load_urls_from_file(filepath: str = "urls.txt") -> list[str]:
 # Recursive Crawl (khi --depth > 0)
 # ---------------------------------------------------------------------------
 
-def crawl_recursive(base_url: str, max_depth: int) -> list[str]:
+def crawl_recursive(
+    base_url: str,
+    max_depth: int,
+    include: Optional[list[str]] = None,
+    exclude: Optional[list[str]] = None
+) -> list[str]:
     """
     Crawl đệ quy từ base_url, theo tất cả internal links tới max_depth.
     Trả về danh sách URL đã deduplicated.
@@ -152,11 +167,24 @@ def crawl_recursive(base_url: str, max_depth: int) -> list[str]:
             continue
         if _is_skippable(url):
             continue
+
+        # Lọc sớm trong lúc duyệt cây để tránh crawl hàng ngàn link rác
+        if exclude and any(ex in url for ex in exclude):
+            continue
+        if include and not any(inc in url for inc in include):
+            # Lưu ý: Ở depth=0 (base_url), có thể ta vẫn phải process để lấy các link con
+            # nhưng thông thường người dùng truyền URL gốc khớp với `include`.
+            # Nếu base_url không khớp include, nhánh này bị dừng từ đầu.
+            if depth > 0:
+                continue
+
         visited.add(url)
         found.append(url)
 
         if depth >= max_depth:
             continue
+            
+        typer.echo(f"  > [Depth {depth}] Đang rà quét: {url} ...")
 
         try:
             resp = httpx.get(url, headers=_HEADERS, timeout=15, follow_redirects=True)

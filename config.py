@@ -21,12 +21,18 @@ CACHE_TTL = 86400             # 24 giờ (seconds)
 CACHE_DIR = ".site2md_cache"
 
 # Content extraction
+MIN_CONTENT_LENGTH = 50       # Bỏ qua các trang rỗng hoặc quá ngắn
 SKIP_EXTENSIONS = {
     ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp",
     ".pdf", ".zip", ".gz", ".tar", ".exe", ".dmg",
     ".mp4", ".mp3", ".avi", ".mov",
     ".css", ".js", ".json", ".xml",
 }
+IGNORE_URL_PATTERNS = [
+    r"/search\.html", r"/genindex\.html", r"/download\.html", 
+    r"\?print=1", r"/(tag|category|author)/",
+    r"/page/\d+/?$", r"/page=\d+"
+]
 
 # Noise elements để xóa trước khi extract
 NOISE_TAGS = ["nav", "header", "footer", "aside", "script", "style", "noscript"]
@@ -34,7 +40,8 @@ NOISE_CLASSES = [
     "pagination", "sidebar", "edit-on-github", "next-page", "prev-page",
     "breadcrumb", "cookie-banner", "ad", "advertisement", "banner",
     "social-share", "related-posts", "comments", "feedback",
-    "table-of-contents",  # Sẽ tự build lại ToC từ headings
+    "table-of-contents", "toc", "menu", "nav", "navigation", 
+    "site-footer", "site-header", "announce", "announcement"
 ]
 
 # File splitting

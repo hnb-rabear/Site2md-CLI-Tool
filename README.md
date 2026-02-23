@@ -43,6 +43,9 @@
 | **CSS Selector** | Trích xuất đúng vùng nội dung qua CSS selector (`--selector`) |
 | **AI Cleaning** | Dùng Deepseek AI để chuẩn hóa Markdown (`--ai-clean`) |
 | **AI Summary** | Tự động tóm tắt từng trang bằng tiếng Việt (`--ai-summary`) |
+| **URL Exclusion** | Lọc bỏ URL theo chuỗi con như ngôn ngữ, tags (`--exclude`) |
+| **Short Filter** | Bỏ qua các trang rỗng hoặc nội dung quá ngắn (`--min-length`) |
+| **Deduplication** | Thuật toán MD5 ngăn chặn việc xuất ra các trang trùng lặp nội dung |
 | **Dry run** | Preview danh sách URLs và ước tính kết quả (`--dry-run`) |
 | **Error handling** | Tự retry (3 lần, exponential backoff), log lỗi vào `error.log` |
 
@@ -102,6 +105,7 @@ Các hằng số toàn cục có thể điều chỉnh:
 | Hằng số | Mặc định | Mô tả |
 |---|---|---|
 | `DEFAULT_SPLIT_LIMIT` | `450_000` | Giới hạn ký tự mỗi file |
+| `MIN_CONTENT_LENGTH` | `50` ký tự | Chiều dài văn bản tối thiểu (có thể ghi đè) |
 | `REQUEST_TIMEOUT` | `30` giây | Timeout HTTP request |
 | `MAX_RETRIES` | `3` | Số lần retry khi lỗi mạng |
 | `CACHE_TTL` | `86400` giây | Thời gian sống của cache (24h) |
@@ -146,6 +150,8 @@ Options:
       --ai-clean           Dùng AI chuẩn hóa Markdown
       --ai-summary         Dùng AI tạo tóm tắt tiếng Việt
       --dry-run            Preview URLs không crawl
+      --min-length INT     Bỏ qua các trang ngắn hơn mức này [default: 50]
+  -x, --exclude   TEXT     Bỏ qua các URL chứa chuỗi này (VD: -x zh-CN)
       --help               Hiển thị trợ giúp
 ```
 
@@ -230,7 +236,8 @@ python main.py https://docs.example.com --depth 1
 python main.py https://docs.example.com --depth 3
 ```
 
-> **Lưu ý:** `--depth` chỉ theo dõi link nội bộ (cùng domain).
+> **Lưu ý:** `--depth` chỉ theo dõi link nội bộ (cùng domain).  
+> **[⚡ Tính năng Tối ưu]:** Khi kết hợp `--depth` chung với bộ lọc `--include` hoặc `--exclude`, Tool sẽ thông minh rà soát và loại bỏ ngay các nhánh con không hợp lệ *ngay trong quá trình đệ quy*. Điều này giúp tốc độ rà quét nhanh hơn hàng trăm lần vì Tool không phải mất thời gian chui vào những ngõ cụt mà sau này đằng nào cũng bị loại bỏ.
 
 ### Fallback `urls.txt`
 
@@ -266,6 +273,29 @@ python main.py https://docs.example.com --selector "#page-content"
 1. Mở DevTools trong trình duyệt (F12)
 2. Click vào vùng nội dung chính
 3. Inspect element → copy selector
+
+> **Lưu ý Heuristic Tự Động:** Nếu bạn không cung cấp `--selector`, Tool vẫn sẽ tự động tìm kiếm các thẻ nội dung phổ biến như `<article>`, `<main>`, hoặc `[role="main"]` để cố gắng cô lập nội dung, do đó giảm rác từ Menu/Sidebar một cách hệ thống.
+
+### Lọc nội dung và URL
+
+1. **URL Inclusion/Exclusion (`--include` / `--exclude`)**:
+   Bạn có thể chỉ giữ lại các URL chứa chuỗi nhất định (`-i`) hoặc loại trừ các URL chứa chuỗi không mong muốn (`-x`). Công cụ sẽ tự chặn/lọc URL từ giai đoạn "URL Discovery" để tránh tốn thời gian tải trang giả.
+   ```bash
+   # Loại bỏ các trang tiếng Trung và trang Tag của người dùng
+   python main.py https://docs.example.com -x zh-CN -x /tag/
+
+   # CHỈ TẢI các trang nằm trong thư mục /docs/
+   python main.py https://docs.example.com -i /docs/
+   ```
+
+2. **Lọc nội dung quá ngắn (`--min-length`)**:
+   Sẽ có nhiều URL như `/search`, thẻ Tags... chỉ sinh ra layout mà không có nội dung văn bản. Nếu kết quả sau khi trích xuất nhỏ hơn giới hạn này (Mặc định: 50 ký tự), nội dung đó sẽ bị loại bỏ hoàn toàn.
+   ```bash
+   python main.py https://docs.example.com --min-length 300
+   ```
+
+3. **Ngăn chặn nội dung trùng lặp (Deduplication)**:
+   Các framework làm Web đôi khi đưa cùng một văn bản (như trang License, Error 404) lên rất nhiều URL khác nhau. Công cụ sử dụng hàm băm mã **MD5** để lưu giữ dấu vân tay của mỗi bài viết. Nó đảm bảo không ghi đè cùng văn bản vào file Output ngay cả khi nó thấy nó trên hàng tá URL.
 
 ### File splitting
 
@@ -358,6 +388,18 @@ python main.py https://docs.rust-lang.org/book/ \
   -o rust_book
 ```
 
+### Xử lý khối Sitemap/Trang Web khổng lồ (Tránh Timeout)
+
+Một số trang web rất lớn (như `ubuntu.com`) sở hữu sitemap chứa hàng trăm nghìn URL, dẫn đến việc Tool có thể bị **Timeout** ngay lúc tải sitemap. Thay vì tải toàn bộ sitemap của công ty, bạn có thể kết hợp `--depth` và `--include` để khoanh vùng và ép Tool chỉ crawl đúng thư mục bạn cần:
+
+```bash
+# Chỉ lấy tài liệu trong nhánh /server/docs/ bằng cách đi theo link nội bộ sâu 2 tầng, 
+# đồng thời chặn đứng các URL lạc ra ngoài nhánh này.
+python main.py https://ubuntu.com/server/docs/ \
+  --depth 2 \
+  --include /server/docs/
+```
+
 ### Crawl nhanh với cache (lần 2 trở đi)
 
 ```bash
@@ -384,7 +426,7 @@ Output:
   Tong URL     : 523
   Format       : md
   Split limit  : 450,000 chars
-  Output       : output.md
+  Output       : output/docs_example_com/docs_example_com.md
   Est. size    : ~2,615,000 chars (6 part(s))
   Est. time    : ~157s
 --------------------------------------------------

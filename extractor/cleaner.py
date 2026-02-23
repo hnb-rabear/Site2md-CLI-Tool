@@ -23,13 +23,28 @@ def clean_html(html: str, selector: Optional[str] = None) -> str:
     soup = BeautifulSoup(html, "lxml")
 
     # ----------------------------------------------------------------
-    # Bước 1: Nếu có --selector, chỉ lấy vùng đó
+    # Bước 1: Giới hạn vùng nội dung (Content Isolation)
     # ----------------------------------------------------------------
     if selector:
         target = soup.select_one(selector)
         if target:
             soup = BeautifulSoup(str(target), "lxml")
-        # Nếu selector không match, giữ nguyên và xử lý tiếp
+    else:
+        # Heuristic tự động: Tìm các thẻ chứa nội dung chính để cô lập 
+        # (cực kỳ hiệu quả cho docs, blog để bỏ qua sidebar/nav/footer)
+        main_selectors = [
+            "main", 
+            "article", 
+            "[role='main']", 
+            "div.main-content", 
+            "div#content", 
+            "div.content"
+        ]
+        for sel in main_selectors:
+            target = soup.select_one(sel)
+            if target:
+                soup = BeautifulSoup(str(target), "lxml")
+                break
 
     # ----------------------------------------------------------------
     # Bước 2: Xóa các thẻ HTML là UI noise rõ ràng

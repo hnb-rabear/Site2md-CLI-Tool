@@ -29,7 +29,9 @@ class FileSplitter:
             fmt: "md", "txt", hoặc "jsonl".
             split_limit: Giới hạn ký tự mỗi file.
         """
-        self.base_name = base_name
+        self.base_dir = Path(base_name)
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+        self.file_prefix = self.base_dir.name
         self.fmt = fmt.lower()
         self.split_limit = split_limit
 
@@ -42,8 +44,10 @@ class FileSplitter:
 
     def _get_filename(self, part: int) -> str:
         if part == 1:
-            return f"{self.base_name}.{self.fmt}"
-        return f"{self.base_name}_part{part}.{self.fmt}"
+            name = f"{self.file_prefix}.{self.fmt}"
+        else:
+            name = f"{self.file_prefix}_part{part}.{self.fmt}"
+        return str(self.base_dir / name)
 
     def _open_new_file(self):
         if self._current_file:

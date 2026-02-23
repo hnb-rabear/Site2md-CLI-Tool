@@ -12,3 +12,27 @@ env/
 # IDE
 .vscode/
 .idea/
+
+# Site2MD Specific
+.site2md_cache/
+error.log
+urls.txt
+err_jsonl.txt
+
+# Generated Output Directories
+output/
+python_optimized/
+python_optimized_minlen/
+python_final/
+docs_python_org_3/
+docs_openclaw_ai/
+test_output/
+test_jsonl/
+test_split/
+*.*_output/
+*.md
+*.jsonl
+*.txt
+!requirements.txt
+!urls.txt
+!README.md

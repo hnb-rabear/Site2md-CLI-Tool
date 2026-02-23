@@ -39,11 +39,11 @@ def extract_markdown(html: str, url: str = "", fallback_html: str = "") -> str:
             output_format="markdown",
             include_formatting=True,
             include_tables=True,
-            include_links=True,
+            include_links=False,    # Bỏ link để tránh rác token
             include_images=False,   # Không cần ảnh trong NotebookLM output
             no_fallback=False,
-            favor_precision=False,
-            favor_recall=True,      # Ưu tiên lấy nhiều hơn bỏ sót
+            favor_precision=True,   # Tránh lấy rác từ sidebar/footer/nav
+            favor_recall=False,     # Không ráng lấy toàn bộ text mồ côi
         )
         if result and len(result.strip()) >= 100:
             return _clean_markdown(result)
@@ -54,7 +54,9 @@ def extract_markdown(html: str, url: str = "", fallback_html: str = "") -> str:
     # Layer 2: markdownify — tốt hơn cho trang có nhiều code/tables
     # ----------------------------------------------------------------
     try:
-        source_html = fallback_html if fallback_html else html
+        # Quan trọng: CHỈ dùng `html` (đã qua clean_html), KHÔNG DÙNG raw fallback_html vì
+        # nó sẽ chứa hàng tá JS payload và UI noise chưa bị decompose.
+        source_html = html
         result = md(
             source_html,
             heading_style="ATX",        # Dùng # ## ### thay vì underline
@@ -90,9 +92,17 @@ def _clean_markdown(text: str) -> str:
     - Xóa trailing whitespace
     - Đảm bảo code blocks có blank line trước/sau
     """
-    # Xóa trailing whitespace mỗi dòng
+    # Xóa dư thừa markdown table artifacts (thường rớt lại khi include_links=False)
+    # Xóa các dòng chỉ chứa ký tự `|` và khoảng trắng
     lines = [line.rstrip() for line in text.splitlines()]
-    text = "\n".join(lines)
+    clean_lines = []
+    for line in lines:
+        # Bỏ qua dòng chỉ chứa pipe
+        if re.match(r"^[\s\|]+$", line):
+            continue
+        clean_lines.append(line)
+        
+    text = "\n".join(clean_lines)
 
     # Giảm nhiều blank lines liên tiếp thành tối đa 2
     text = re.sub(r"\n{3,}", "\n\n", text)
