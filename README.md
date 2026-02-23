@@ -1,172 +1,177 @@
 # Site2MD — Website to Markdown CLI
 
-> Crawl bất kỳ trang web nào → Markdown/JSONL/TXT tối ưu cho **NotebookLM**, **RAG**, và các hệ thống AI khác.
+[🇻🇳 Đọc bằng Tiếng Việt (Read in Vietnamese)](README_VI.md)
+
+> Crawl any website → Optimized Markdown/JSONL/TXT for **NotebookLM**, **RAG**, and other AI systems.
 
 ---
 
-## Mục lục
+## Table of Contents
 
-- [Tính năng](#tính-năng)
-- [Yêu cầu](#yêu-cầu)
-- [Cài đặt](#cài-đặt)
-- [Cấu hình](#cấu-hình)
-- [Sử dụng cơ bản](#sử-dụng-cơ-bản)
-- [Tất cả tùy chọn](#tất-cả-tùy-chọn)
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Basic Usage](#basic-usage)
+- [All Options](#all-options)
 - [Output formats](#output-formats)
-- [Tính năng nâng cao](#tính-năng-nâng-cao)
-  - [Crawl qua sitemap](#crawl-qua-sitemap)
-  - [Crawl đệ quy](#crawl-đệ-quy)
+- [Advanced Features](#advanced-features)
+  - [Sitemap Crawl](#sitemap-crawl)
+  - [Recursive Crawl](#recursive-crawl)
   - [Fallback urls.txt](#fallback-urlstxt)
   - [CSS Selector](#css-selector)
-  - [File splitting](#file-splitting)
+  - [Content and URL Filtering](#content-and-url-filtering)
+  - [File Splitting](#file-splitting)
   - [HTTP Caching](#http-caching)
   - [AI Refinement](#ai-refinement)
-- [Ví dụ thực tế](#ví-dụ-thực-tế)
-- [Cấu trúc dự án](#cấu-trúc-dự-án)
-- [Xử lý lỗi](#xử-lý-lỗi)
+- [Real-world Examples](#real-world-examples)
+- [Project Structure](#project-structure)
+- [Error Handling](#error-handling)
 - [NotebookLM Tips](#notebooklm-tips)
 
 ---
 
-## Tính năng
+## Features
 
-| Tính năng | Mô tả |
+| Feature | Description |
 |---|---|
-| **Sitemap crawler** | Tự động tìm `sitemap.xml` qua `robots.txt` hoặc đường dẫn mặc định |
-| **Recursive crawl** | Crawl đệ quy theo độ sâu với `--depth` khi không có sitemap |
-| **Multi-format** | Xuất ra Markdown (`.md`), plain text (`.txt`), JSON Lines (`.jsonl`) |
-| **File splitting** | Tự động chia file khi vượt giới hạn ký tự (tối ưu cho NotebookLM 500k) |
-| **YAML front-matter** | Mỗi trang được gắn metadata `source_url`, `title`, `collected_at` |
-| **Table of Contents** | Tự động tạo mục lục liên kết cho toàn bộ tài liệu |
-| **HTTP caching** | Cache HTTP 24h để tránh crawl lại (`--cache`) |
-| **Concurrency** | Crawl song song nhiều trang cùng lúc (`--concurrency`) |
-| **CSS Selector** | Trích xuất đúng vùng nội dung qua CSS selector (`--selector`) |
-| **AI Cleaning** | Dùng Deepseek AI để chuẩn hóa Markdown (`--ai-clean`) |
-| **AI Summary** | Tự động tóm tắt từng trang bằng tiếng Việt (`--ai-summary`) |
-| **URL Exclusion** | Lọc bỏ URL theo chuỗi con như ngôn ngữ, tags (`--exclude`) |
-| **Short Filter** | Bỏ qua các trang rỗng hoặc nội dung quá ngắn (`--min-length`) |
-| **Deduplication** | Thuật toán MD5 ngăn chặn việc xuất ra các trang trùng lặp nội dung |
-| **Dry run** | Preview danh sách URLs và ước tính kết quả (`--dry-run`) |
-| **Error handling** | Tự retry (3 lần, exponential backoff), log lỗi vào `error.log` |
+| **Sitemap Crawler** | Automatically finds `sitemap.xml` via `robots.txt` or default paths |
+| **Recursive Crawl** | Recursive breadth-first crawl with `--depth` when sitemap is missing |
+| **Multi-format** | Output to Markdown (`.md`), plain text (`.txt`), JSON Lines (`.jsonl`) |
+| **File Splitting** | Auto-splits files when exceeding character limits (optimized for NotebookLM's 500k limit) |
+| **YAML Front-matter** | Injects `source_url`, `title`, `collected_at` metadata into each page |
+| **Table of Contents** | Auto-generates a hyperlinked table of contents for the entire document |
+| **HTTP Caching** | 24h HTTP caching to prevent re-crawling (`--cache`) |
+| **Concurrency** | Concurrent crawling for multiple pages (`--concurrency`) |
+| **CSS Selector** | Target specific content areas using CSS selectors (`--selector`) |
+| **AI Cleaning** | Uses Deepseek AI to format and clean Markdown (`--ai-clean`) |
+| **AI Summary** | Auto-generates a Vietnamese summary for each page (`--ai-summary`) |
+| **URL Filtering** | Filter URLs by substrings like language or tags (`--include` / `--exclude`) |
+| **Short Filter** | Skips empty pages or content that is too short (`--min-length`) |
+| **Deduplication** | MD5 hashing algorithm prevents duplicate content output |
+| **Global Output Dir**| All results are cleanly packed into an `output/` directory (git ignored) |
+| **Dry Run** | Previews URLs and estimates results without crawling (`--dry-run`) |
+| **Error Handling** | Auto-retries (3 times, exponential backoff) and logs to `error.log` |
 
 ---
 
-## Yêu cầu
+## Requirements
 
 - **Python 3.10+**
-- Kết nối internet
+- Internet connection
 
 ---
 
-## Cài đặt
+## Installation
 
-### 1. Clone hoặc tải về dự án
+### 1. Clone or download the project
 
 ```bash
 git clone https://github.com/yourname/site2md.git
 cd site2md
 ```
 
-### 2. Cài đặt dependencies
+### 2. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Hoặc nếu pip không nhận diện:
+Or if pip is not recognized:
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-### 3. Cấu hình API (tùy chọn — chỉ cần cho AI features)
+### 3. API Configuration (Optional — only for AI features)
 
 ```bash
 cp .env.example .env
-# Chỉnh sửa .env và điền DEEPSEEK_API_KEY nếu muốn dùng --ai-clean / --ai-summary
+# Edit .env and fill in DEEPSEEK_API_KEY if you want to use --ai-clean / --ai-summary
 ```
 
 ---
 
-## Cấu hình
+## Configuration
 
 ### `.env`
 
 ```env
-# Chỉ cần cho --ai-clean và --ai-summary
+# Only needed for --ai-clean and --ai-summary
 DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxx
-DEEPSEEK_BASE_URL=https://api.deepseek.com  # Mặc định, có thể bỏ qua
+DEEPSEEK_BASE_URL=https://api.deepseek.com  # Default, can be omitted
 ```
 
 ### `config.py`
 
-Các hằng số toàn cục có thể điều chỉnh:
+Adjustable global constants:
 
-| Hằng số | Mặc định | Mô tả |
+| Constant | Default | Description |
 |---|---|---|
-| `DEFAULT_SPLIT_LIMIT` | `450_000` | Giới hạn ký tự mỗi file |
-| `MIN_CONTENT_LENGTH` | `50` ký tự | Chiều dài văn bản tối thiểu (có thể ghi đè) |
-| `REQUEST_TIMEOUT` | `30` giây | Timeout HTTP request |
-| `MAX_RETRIES` | `3` | Số lần retry khi lỗi mạng |
-| `CACHE_TTL` | `86400` giây | Thời gian sống của cache (24h) |
-| `AI_MAX_CHUNK` | `12_000` | Max token mỗi lần gọi AI |
+| `DEFAULT_SPLIT_LIMIT` | `450_000` | Character limit per file |
+| `MIN_CONTENT_LENGTH` | `50` chars | Minimum text length (can be overridden) |
+| `REQUEST_TIMEOUT` | `30` seconds | HTTP request timeout |
+| `MAX_RETRIES` | `3` | Number of retries on network error |
+| `CACHE_TTL` | `86400` seconds | Cache time-to-live (24h) |
+| `AI_MAX_CHUNK` | `12_000` | Max tokens per AI call |
 
 ---
 
-## Sử dụng cơ bản
+## Basic Usage
 
 ```bash
-# Crawl toàn bộ site qua sitemap, xuất ra output.md
+# Crawl entire site via sitemap, output to output/default_scrape/default_scrape.md
 python main.py https://docs.example.com
 
-# Crawl đệ quy depth=2, đặt tên output là "laravel_docs"
+# Recursive crawl depth=2, output named "laravel_docs"
 python main.py https://laravel.com/docs -o laravel_docs --depth 2
 
-# Xuất JSONL (cho RAG vector store)
+# Export JSONL (for RAG vector store)
 python main.py https://docs.example.com --format jsonl
 
-# Xem trước URLs trước khi crawl
+# Preview URLs before crawling
 python main.py https://docs.example.com --dry-run
 ```
 
 ---
 
-## Tất cả tùy chọn
+## All Options
 
 ```
 Usage: python main.py [URL] [OPTIONS]
 
 Arguments:
-  URL  [required]  URL gốc cần crawl (ví dụ: https://docs.example.com/)
+  URL  [required]  Base URL to crawl (e.g.: https://docs.example.com/)
 
 Options:
-  -o, --output    TEXT     Tên file đầu ra (không extension) [default: output]
+  -o, --output    TEXT     Output filename/folder (no extension) [default: auto]
   -f, --format    TEXT     Format: md | txt | jsonl          [default: md]
-  -c, --concurrency INT   Số request song song               [default: 5]
-      --cache              Bật HTTP cache 24h
-      --split-limit INT    Giới hạn ký tự mỗi file          [default: 450000]
-      --selector  TEXT     CSS selector vùng nội dung
-      --depth     INT      Độ sâu crawl đệ quy (0 = dùng sitemap)
-      --ai-clean           Dùng AI chuẩn hóa Markdown
-      --ai-summary         Dùng AI tạo tóm tắt tiếng Việt
-      --dry-run            Preview URLs không crawl
-      --min-length INT     Bỏ qua các trang ngắn hơn mức này [default: 50]
-  -x, --exclude   TEXT     Bỏ qua các URL chứa chuỗi này (VD: -x zh-CN)
-      --help               Hiển thị trợ giúp
+  -c, --concurrency INT   Concurrent requests                  [default: 5]
+      --cache              Enable 24h HTTP cache
+      --split-limit INT    Character limit per file          [default: 450000]
+      --selector  TEXT     CSS selector for content area
+      --depth     INT      Recursive crawl depth (0 = use sitemap)
+      --ai-clean           Use AI to format Markdown
+      --ai-summary         Use AI to generate page summaries
+      --dry-run            Preview URLs without crawling
+      --min-length INT     Skip pages shorter than this      [default: 50]
+  -i, --include   TEXT     ONLY keep URLs containing this string (e.g. -i /docs/)
+  -x, --exclude   TEXT     Ignore URLs containing this string (e.g. -x zh-CN)
+      --help               Show help message
 ```
 
 ---
 
 ## Output formats
 
-### `--format md` (mặc định)
+### `--format md` (default)
 
-Phù hợp nhất cho **NotebookLM** và đọc bởi người.
+Best suited for **NotebookLM** and human reading.
 
 ```markdown
-# 📑 MỤC LỤC
+# 📑 MỤC LỤC (Table of Contents)
 
-Tổng số trang: **42**
+Total pages: **42**
 
 1. [Getting Started](https://docs.example.com/getting-started)
 2. [Installation](https://docs.example.com/installation)
@@ -181,14 +186,14 @@ collected_at: 2026-02-23T17:00:00+07:00
 
 # Getting Started
 
-Nội dung trang...
+Page content...
 ```
 
 ### `--format jsonl`
 
-Phù hợp cho **RAG vector stores**, **LangChain**, **LlamaIndex**.
+Suitable for **RAG vector stores**, **LangChain**, **LlamaIndex**.
 
-Mỗi dòng là một JSON object:
+Each line is a JSON object:
 
 ```json
 {"url": "https://docs.example.com/page", "title": "Page Title", "content": "# Heading\n\nContent...", "collected_at": "2026-02-23T17:00:00+07:00"}
@@ -196,52 +201,52 @@ Mỗi dòng là một JSON object:
 
 ### `--format txt`
 
-Xuất plain text đơn giản, không có Markdown formatting.
+Exports simple plain text, without Markdown formatting.
 
 ```
 SITE2MD — https://docs.example.com
-Thu thập: 2026-02-23T17:00:00+07:00
+Collected: 2026-02-23T17:00:00+07:00
 ============================================================
 
 [Getting Started] https://docs.example.com/getting-started
-Nội dung trang...
+Page content...
 ```
 
 ---
 
-## Tính năng nâng cao
+## Advanced Features
 
-### Crawl qua sitemap
+### Sitemap Crawl
 
-Mặc định, Site2MD tự tìm sitemap theo thứ tự:
+By default, Site2MD finds the sitemap in this order:
 
-1. Đọc `robots.txt` để tìm `Sitemap:` directive
-2. Thử `/sitemap.xml`
-3. Thử `/sitemap_index.xml`
-4. Fallback sang `urls.txt` nếu không tìm thấy
+1. Reads `robots.txt` for `Sitemap:` directives
+2. Tries `/sitemap.xml`
+3. Tries `/sitemap_index.xml`
+4. Fallbacks to `urls.txt` if not found
 
 ```bash
 python main.py https://docs.example.com
 ```
 
-### Crawl đệ quy
+### Recursive Crawl
 
-Dùng khi site không có sitemap, hoặc muốn giới hạn số trang:
+Used when a site lacks a sitemap, or to limit the number of pages:
 
 ```bash
-# Crawl tối đa depth=1 (chỉ các link trực tiếp từ trang gốc)
+# Crawl max depth=1 (only direct links from the base page)
 python main.py https://docs.example.com --depth 1
 
-# Crawl sâu hơn
+# Crawl deeper
 python main.py https://docs.example.com --depth 3
 ```
 
-> **Lưu ý:** `--depth` chỉ theo dõi link nội bộ (cùng domain).  
-> **[⚡ Tính năng Tối ưu]:** Khi kết hợp `--depth` chung với bộ lọc `--include` hoặc `--exclude`, Tool sẽ thông minh rà soát và loại bỏ ngay các nhánh con không hợp lệ *ngay trong quá trình đệ quy*. Điều này giúp tốc độ rà quét nhanh hơn hàng trăm lần vì Tool không phải mất thời gian chui vào những ngõ cụt mà sau này đằng nào cũng bị loại bỏ.
+> **Note:** `--depth` only follows internal links (same domain).  
+> **[⚡ Optimization Feature]:** When combining `--depth` with `--include` or `--exclude` filters, the tool intelligently scans and drops invalid branches *during the recursion process*. This speeds up crawling hundreds of times since the tool doesn't waste time going down dead ends.
 
 ### Fallback `urls.txt`
 
-Nếu không tìm thấy sitemap, tạo file `urls.txt` trong thư mục chạy lệnh:
+If no sitemap is found, create a `urls.txt` file in the working directory:
 
 ```
 https://docs.example.com/page1
@@ -251,109 +256,109 @@ https://docs.example.com/page3
 
 ```bash
 python main.py https://docs.example.com
-# Tự động đọc urls.txt khi sitemap không tìm thấy
+# Automatically reads urls.txt when sitemap is missing
 ```
 
 ### CSS Selector
 
-Khi trang có nhiều UI noise (nav, footer, sidebar), dùng `--selector` để trỏ đúng vùng nội dung:
+When a page has heavily noisy UI (nav, footer, sidebar), use `--selector` to target the main content:
 
 ```bash
-# Chỉ lấy nội dung trong <article class="content">
+# Only extract content inside <article class="content">
 python main.py https://docs.example.com --selector "article.content"
 
-# Lấy main content
+# Extract main content
 python main.py https://docs.example.com --selector "main"
 
-# Lấy div có id cụ thể
+# Extract specific div by id
 python main.py https://docs.example.com --selector "#page-content"
 ```
 
-**Cách tìm selector:**
-1. Mở DevTools trong trình duyệt (F12)
-2. Click vào vùng nội dung chính
+**How to find a selector:**
+1. Open DevTools in browser (F12)
+2. Click on the main content area
 3. Inspect element → copy selector
 
-> **Lưu ý Heuristic Tự Động:** Nếu bạn không cung cấp `--selector`, Tool vẫn sẽ tự động tìm kiếm các thẻ nội dung phổ biến như `<article>`, `<main>`, hoặc `[role="main"]` để cố gắng cô lập nội dung, do đó giảm rác từ Menu/Sidebar một cách hệ thống.
+> **Auto-Heuristic Note:** If you don't provide a `--selector`, the tool will automatically search for common content tags like `<article>`, `<main>`, or `[role="main"]` to isolate content and systematically reduce Menu/Sidebar noise.
 
-### Lọc nội dung và URL
+### Content and URL Filtering
 
 1. **URL Inclusion/Exclusion (`--include` / `--exclude`)**:
-   Bạn có thể chỉ giữ lại các URL chứa chuỗi nhất định (`-i`) hoặc loại trừ các URL chứa chuỗi không mong muốn (`-x`). Công cụ sẽ tự chặn/lọc URL từ giai đoạn "URL Discovery" để tránh tốn thời gian tải trang giả.
+   You can choose to exclusively keep URLs containing a string (`-i`) or exclude URLs containing unwanted strings (`-x`). The tool blocks/filters URLs during "URL Discovery" to avoid loading fake pages.
    ```bash
-   # Loại bỏ các trang tiếng Trung và trang Tag của người dùng
+   # Remove Chinese pages and user Tag pages
    python main.py https://docs.example.com -x zh-CN -x /tag/
 
-   # CHỈ TẢI các trang nằm trong thư mục /docs/
+   # ONLY LOAD pages inside the /docs/ folder
    python main.py https://docs.example.com -i /docs/
    ```
 
-2. **Lọc nội dung quá ngắn (`--min-length`)**:
-   Sẽ có nhiều URL như `/search`, thẻ Tags... chỉ sinh ra layout mà không có nội dung văn bản. Nếu kết quả sau khi trích xuất nhỏ hơn giới hạn này (Mặc định: 50 ký tự), nội dung đó sẽ bị loại bỏ hoàn toàn.
+2. **Short Content Filter (`--min-length`)**:
+   Many URLs like `/search`, Tags... generate layouts without text content. If the extracted result is smaller than this limit (Default: 50 characters), the content is discarded.
    ```bash
    python main.py https://docs.example.com --min-length 300
    ```
 
-3. **Ngăn chặn nội dung trùng lặp (Deduplication)**:
-   Các framework làm Web đôi khi đưa cùng một văn bản (như trang License, Error 404) lên rất nhiều URL khác nhau. Công cụ sử dụng hàm băm mã **MD5** để lưu giữ dấu vân tay của mỗi bài viết. Nó đảm bảo không ghi đè cùng văn bản vào file Output ngay cả khi nó thấy nó trên hàng tá URL.
+3. **Content Deduplication**:
+   Web frameworks sometimes serve the exact same text (like License, Error 404 pages) on multiple URLs. The tool uses **MD5** hashing to keep a fingerprint of each article. It ensures identical text is not overwritten to the Output even if found on dozens of URLs.
 
-### File splitting
+### File Splitting
 
-NotebookLM giới hạn **500,000 ký tự** mỗi file. Site2MD tự động chia file khi vượt ngưỡng:
+NotebookLM limits files to **500,000 characters**. Site2MD auto-splits files when exceeding the threshold:
 
 ```
 output.md        (450,000 chars)
-output_part2.md  (tiếp theo...)
-output_part3.md  (nếu cần...)
+output_part2.md  (continued...)
+output_part3.md  (if needed...)
 ```
 
-Tùy chỉnh ngưỡng:
+Customize the split limit:
 
 ```bash
-# Chia nhỏ hơn (200k chars/file)
+# Split smaller (200k chars/file)
 python main.py https://docs.example.com --split-limit 200000
 
-# Không chia (cho Google Drive, etc.)
+# Do not split (for Google Drive, etc.)
 python main.py https://docs.example.com --split-limit 999999999
 ```
 
 ### HTTP Caching
 
-Bật cache để tránh crawl lại trang đã fetch, tiết kiệm thời gian khi chạy nhiều lần:
+Enable cache to avoid re-fetching pages, saving time on subsequent runs:
 
 ```bash
 python main.py https://docs.example.com --cache
 ```
 
-Cache được lưu tại `.cache/` trong thư mục hiện tại, TTL = 24h.
+Cache is saved in `.site2md_cache/` in the current directory, TTL = 24h.
 
 ### AI Refinement
 
-Yêu cầu `DEEPSEEK_API_KEY` trong `.env`.
+Requires `DEEPSEEK_API_KEY` in `.env`.
 
-#### `--ai-clean` — Chuẩn hóa Markdown
+#### `--ai-clean` — Standardize Markdown
 
-Dùng AI để:
-- Sửa indentation code blocks
-- Chuẩn hóa bảng Markdown
-- Loại bỏ ký tự rác
-- Thống nhất heading levels
+Uses AI to:
+- Fix code block indentation
+- Standardize Markdown tables
+- Remove garbage characters
+- Unify heading levels
 
 ```bash
 python main.py https://docs.example.com --ai-clean
 ```
 
-> Xử lý thêm ~1-2 giây/trang. Có chunking tự động cho trang dài.
+> Adds ~1-2 secs/page. Includes automatic chunking for long pages.
 
-#### `--ai-summary` — Tóm tắt trang
+#### `--ai-summary` — Page Summary
 
-Thêm tóm tắt ~50 từ bằng tiếng Việt vào đầu mỗi trang:
+Adds a ~50-word summary at the top of each page:
 
 ```bash
 python main.py https://docs.example.com --ai-summary
 ```
 
-#### Kết hợp cả hai
+#### Combine Both
 
 ```bash
 python main.py https://docs.example.com --ai-clean --ai-summary
@@ -361,25 +366,25 @@ python main.py https://docs.example.com --ai-clean --ai-summary
 
 ---
 
-## Ví dụ thực tế
+## Real-world Examples
 
-### Scrape Python docs để hỏi NotebookLM
+### Scrape Python docs for NotebookLM
 
 ```bash
 python main.py https://docs.python.org/3/ --depth 1 -o python_docs --concurrency 10
 ```
 
-→ Tạo `python_docs.md` + `python_docs_part2.md`, upload cả 2 lên NotebookLM.
+→ Generates `python_docs.md` + `python_docs_part2.md`, upload both to NotebookLM.
 
-### Scrape docs framework cho RAG
+### Scrape framework docs for RAG
 
 ```bash
 python main.py https://fastapi.tiangolo.com --format jsonl -o fastapi_docs
 ```
 
-→ Tạo `fastapi_docs.jsonl`, import vào LangChain/LlamaIndex.
+→ Generates `fastapi_docs.jsonl`, import into LangChain/LlamaIndex.
 
-### Site có sidebar phức tạp
+### Site with complex sidebars
 
 ```bash
 python main.py https://docs.rust-lang.org/book/ \
@@ -388,29 +393,29 @@ python main.py https://docs.rust-lang.org/book/ \
   -o rust_book
 ```
 
-### Xử lý khối Sitemap/Trang Web khổng lồ (Tránh Timeout)
+### Handling Massive Sitemaps/Websites (Avoid Timeout)
 
-Một số trang web rất lớn (như `ubuntu.com`) sở hữu sitemap chứa hàng trăm nghìn URL, dẫn đến việc Tool có thể bị **Timeout** ngay lúc tải sitemap. Thay vì tải toàn bộ sitemap của công ty, bạn có thể kết hợp `--depth` và `--include` để khoanh vùng và ép Tool chỉ crawl đúng thư mục bạn cần:
+Some very large websites (like `ubuntu.com`) have sitemaps containing hundreds of thousands of URLs, which can cause the tool to **Timeout** while loading the sitemap. Instead of downloading the company's entire sitemap, you can combine `--depth` and `--include` to restrict the tool to crawl exactly the folder you need:
 
 ```bash
-# Chỉ lấy tài liệu trong nhánh /server/docs/ bằng cách đi theo link nội bộ sâu 2 tầng, 
-# đồng thời chặn đứng các URL lạc ra ngoài nhánh này.
+# Only get docs in the /server/docs/ branch by following internal links up to 2 layers deep,
+# while blocking URLs that wander outside this branch.
 python main.py https://ubuntu.com/server/docs/ \
   --depth 2 \
   --include /server/docs/
 ```
 
-### Crawl nhanh với cache (lần 2 trở đi)
+### Fast crawl with cache (2nd run onwards)
 
 ```bash
-# Lần đầu: crawl thực tế
+# First time: actual crawl
 python main.py https://docs.example.com --cache -o docs
 
-# Lần sau: đọc từ cache (<1 giây)
+# Next time: read from cache (<1 sec)
 python main.py https://docs.example.com --cache -o docs_v2
 ```
 
-### Preview trước khi crawl site lớn
+### Preview before crawling large sites
 
 ```bash
 python main.py https://docs.example.com --dry-run
@@ -439,122 +444,122 @@ Output:
 
 ---
 
-## Cấu trúc dự án
+## Project Structure
 
 ```
 Site2md CLI Tool/
 ├── main.py              # CLI entry point (Typer)
-├── config.py            # Hằng số và cấu hình
+├── config.py            # Constants and settings
 ├── requirements.txt     # Dependencies
-├── .env.example         # Template biến môi trường
-├── .env                 # API keys (không commit git!)
+├── .env.example         # Environment template
+├── .env                 # API keys (do not commit to git!)
 │
 ├── crawler/
 │   ├── __init__.py
-│   ├── sitemap.py       # Tìm sitemap, parse XML, crawl đệ quy
+│   ├── sitemap.py       # Sitemap discovery, XML parsing, recursive crawl
 │   └── fetcher.py       # Async HTTP client (httpx + hishel cache + retry)
 │
 ├── extractor/
 │   ├── __init__.py
-│   ├── cleaner.py       # Xóa UI noise (nav/footer/ads) bằng BeautifulSoup
-│   └── content.py       # Trích xuất nội dung (trafilatura → markdownify fallback)
+│   ├── cleaner.py       # Removes UI noise (nav/footer/ads) via BeautifulSoup
+│   └── content.py       # Content extraction (trafilatura → markdownify fallback)
 │
 └── formatter/
     ├── __init__.py
     ├── markdown.py      # Build YAML block, JSONL record, Table of Contents
-    ├── splitter.py      # Chia file tự động theo giới hạn ký tự
+    ├── splitter.py      # Auto-splits files by character limit
     └── ai_refiner.py    # Deepseek API integration (clean + summary)
 ```
 
-### Luồng xử lý
+### Pipeline Flow
 
 ```
 URL Input
    │
-   ├── sitemap.py → Tìm danh sách URLs (sitemap / đệ quy / urls.txt)
+   ├── sitemap.py → Find URL list (sitemap / recursive / urls.txt)
    │
-   └── fetcher.py → Fetch HTML song song (async, cache, retry)
+   └── fetcher.py → Fetch HTML concurrently (async, cache, retry)
           │
-          ├── cleaner.py → Xóa noise HTML, áp dụng CSS selector
+          ├── cleaner.py → Remove HTML noise, apply CSS selector
           │
           ├── content.py → trafilatura → markdown content
           │              → markdownify (fallback)
           │
-          ├── ai_refiner.py → (tùy chọn) AI clean + summary
+          ├── ai_refiner.py → (optional) AI clean + summary
           │
-          └── splitter.py → Ghi ra file (md/txt/jsonl), tự split
+          └── splitter.py → Output to file (md/txt/jsonl), auto split
 ```
 
 ---
 
-## Xử lý lỗi
+## Error Handling
 
 ### `error.log`
 
-Mọi lỗi crawl được ghi vào `error.log` trong thư mục hiện tại:
+All crawl errors are logged to `error.log` in the current directory:
 
 ```
 2026-02-23 17:00:01 WARNING [SKIPPED] https://example.com/page - HTTP 403
 2026-02-23 17:00:05 WARNING [SKIPPED] https://example.com/other - Timeout
 ```
 
-### Retry tự động
+### Auto Retries
 
-- **3 lần retry** với exponential backoff (1s → 2s → 4s)
-- Áp dụng cho: timeout, connection error, HTTP 5xx
-- HTTP 403, 404: skip ngay, không retry
+- **3 retries** with exponential backoff (1s → 2s → 4s)
+- Applies to: timeouts, connection errors, HTTP 5xx
+- HTTP 403, 404: skipped immediately, no retry
 
-### Trang không extract được
+### Extraction Failures
 
-- Nếu `trafilatura` không extract được → thử `markdownify`
-- Nếu cả hai thất bại → ghi `[SKIPPED]` vào `error.log`, tiếp tục trang khác
-- Trang bị skip **không làm dừng** toàn bộ quá trình crawl
+- If `trafilatura` fails to extract → tries `markdownify`
+- If both fail → logs `[SKIPPED]` to `error.log`, continues to next page
+- Skipped pages **do not halt** the entire crawling process
 
 ---
 
 ## NotebookLM Tips
 
-### Upload nhiều file
+### Uploading multiple files
 
-Khi site có nhiều trang, Site2MD tự chia thành nhiều file `_part1`, `_part2`... Upload tất cả lên NotebookLM cùng một lúc.
+For large sites, Site2MD auto-splits into multiple files `_part1`, `_part2`... Upload all to NotebookLM at once.
 
-### Giới hạn 500k ký tự
+### 500k Character Limit
 
-NotebookLM từ chối file > 500,000 ký tự. Mặc định Site2MD dùng `--split-limit 450000` để có buffer an toàn.
+NotebookLM rejects files > 500,000 characters. Site2MD defaults to `--split-limit 450000` to maintain a safe buffer.
 
-### Tối ưu hóa độ liên quan
+### Optimizing Relevance
 
-Dùng `--selector` để chỉ lấy nội dung chính, bỏ qua nav/footer:
+Use `--selector` to target only main content, ignoring nav/footers:
 
 ```bash
-# Kết quả tốt hơn cho Q&A
+# Better results for Q&A
 python main.py https://docs.example.com --selector "main article"
 ```
 
-### Format nào tốt nhất?
+### Which Format is Best?
 
-| Use case | Format |
+| Use Case | Format |
 |---|---|
-| NotebookLM | `md` (mặc định) |
+| NotebookLM | `md` (default) |
 | LangChain / LlamaIndex | `jsonl` |
-| Đọc thủ công | `txt` |
+| Manual Reading | `txt` |
 | Chroma / Pinecone | `jsonl` |
 
 ---
 
-## Dependencies chính
+## Core Dependencies
 
-| Package | Mục đích |
+| Package | Purpose |
 |---|---|
 | `typer` | CLI framework |
 | `httpx` | Async HTTP client |
-| `hishel` | HTTP cache cho httpx |
+| `hishel` | HTTP cache for httpx |
 | `beautifulsoup4` + `lxml` | HTML parsing & cleaning |
 | `trafilatura` | Content extraction |
 | `markdownify` | HTML → Markdown fallback |
 | `openai` | Deepseek API client (AI features) |
 | `tqdm` | Progress bar |
-| `python-dotenv` | Đọc `.env` |
+| `python-dotenv` | Read `.env` |
 
 ---
 
