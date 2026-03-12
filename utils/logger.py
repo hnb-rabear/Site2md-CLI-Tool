@@ -3,11 +3,12 @@ utils/logger.py — Logging setup cho Site2MD
 """
 import logging
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 
 def setup_logger(log_file: str = "error.log") -> logging.Logger:
-    """Khởi tạo logger: INFO lên stdout, WARNING+ vào error.log."""
+    """Khởi tạo logger: INFO lên stdout, WARNING+ vào error.log (rotating)."""
     logger = logging.getLogger("site2md")
     logger.setLevel(logging.DEBUG)
 
@@ -19,8 +20,13 @@ def setup_logger(log_file: str = "error.log") -> logging.Logger:
     console.setLevel(logging.INFO)
     console.setFormatter(logging.Formatter("%(message)s"))
 
-    # File handler — WARNING trở lên
-    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    # File handler — WARNING trở lên, rotating (5MB x 3 backups)
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=5 * 1024 * 1024,  # 5MB
+        backupCount=3,
+        encoding="utf-8",
+    )
     file_handler.setLevel(logging.WARNING)
     file_handler.setFormatter(
         logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")

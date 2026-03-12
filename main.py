@@ -3,8 +3,15 @@ main.py — Site2MD CLI Entry Point
 Usage: python main.py [URL] [OPTIONS]
 """
 import asyncio
+import hashlib
 import os
+import re
+import signal
 import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+from urllib.parse import urlparse
 
 # Reconfigure stdout/stderr to UTF-8 on Windows to avoid UnicodeEncodeError
 if hasattr(sys.stdout, "reconfigure"):
@@ -12,10 +19,7 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-from datetime import datetime
-from pathlib import Path
-from typing import Optional
-
+import httpx
 import typer
 from tqdm import tqdm
 
@@ -23,7 +27,7 @@ from config import DEFAULT_SPLIT_LIMIT, VALID_FORMATS
 from crawler.fetcher import AsyncFetcher
 from crawler.sitemap import (
     crawl_recursive,
-    discover_sitemap_url,
+    discover_sitemap_urls,
     load_urls_from_file,
     parse_sitemap,
 )
@@ -40,6 +44,27 @@ app = typer.Typer(
 )
 
 logger = setup_logger()
+
+# Flag for graceful shutdown
+_interrupted = False
+
+
+def _handle_interrupt(signum, frame):
+    """Handle Ctrl+C gracefully — set flag instead of crashing."""
+    global _interrupted
+    if _interrupted:
+        # Second Ctrl+C → force exit
+        typer.echo("\n[!] Force exit.")
+        sys.exit(1)
+    _interrupted = True
+    typer.echo(typer.style(
+        "\n[!] Ctrl+C detected. Finishing current page and saving partial output...",
+        fg=typer.colors.YELLOW, bold=True,
+    ))
+
+
+# Register signal handler
+signal.signal(signal.SIGINT, _handle_interrupt)
 
 
 # ---------------------------------------------------------------------------
@@ -58,17 +83,22 @@ def _discover_urls(
         return crawl_recursive(url, depth, include, exclude)
 
     typer.echo("[*] Searching sitemap...")
-    sitemap_url = discover_sitemap_url(url)
+    sitemap_urls = discover_sitemap_urls(url)
 
-    if sitemap_url:
-        try:
-            import httpx
-            resp = httpx.get(sitemap_url, timeout=15, follow_redirects=True)
-            urls = parse_sitemap(resp.text)
-            typer.echo(f"    OK  Sitemap: {len(urls)} URLs found")
-            return urls
-        except Exception as e:
-            logger.warning(f"Sitemap read error: {e}")
+    if sitemap_urls:
+        all_urls: list[str] = []
+        for sitemap_url in sitemap_urls:
+            try:
+                resp = httpx.get(sitemap_url, timeout=15, follow_redirects=True)
+                urls = parse_sitemap(resp.text)
+                all_urls.extend(urls)
+            except Exception as e:
+                logger.warning(f"Sitemap read error ({sitemap_url}): {e}")
+        if all_urls:
+            # Deduplicate across sitemaps while preserving order
+            all_urls = list(dict.fromkeys(all_urls))
+            typer.echo(f"    OK  Sitemap: {len(all_urls)} URLs found (from {len(sitemap_urls)} sitemap(s))")
+            return all_urls
 
     # Fallback: urls.txt
     typer.echo("    WARN  Sitemap failed. Trying urls.txt...")
@@ -169,7 +199,10 @@ async def _run(
     min_length: int,
     exclude: Optional[list[str]],
     include: Optional[list[str]],
+    max_pages: int,
+    verbose: bool,
 ):
+    global _interrupted
     collected_at = datetime.now().astimezone().isoformat()
 
     # ── Phase 1: URL Discovery ──────────────────────────────────────────────
@@ -182,11 +215,7 @@ async def _run(
     # ── Filter Includes/Excludes ────────────────────────────────────────────
     # Include filtering: URL must contain at least one of the include patterns
     if include:
-        filtered_urls_inc = []
-        for u in urls:
-            if any(inc in u for inc in include):
-                filtered_urls_inc.append(u)
-                
+        filtered_urls_inc = [u for u in urls if any(inc in u for inc in include)]
         included_count = len(filtered_urls_inc)
         typer.echo(f"[*] Kept {included_count} URLs matching --include patterns")
         urls = filtered_urls_inc
@@ -197,11 +226,7 @@ async def _run(
 
     # Exclude filtering: URL must NOT contain any of the exclude patterns
     if exclude:
-        filtered_urls_exc = []
-        for u in urls:
-            if not any(ex in u for ex in exclude):
-                filtered_urls_exc.append(u)
-        
+        filtered_urls_exc = [u for u in urls if not any(ex in u for ex in exclude)]
         excluded_count = len(urls) - len(filtered_urls_exc)
         if excluded_count > 0:
             typer.echo(f"[*] Excluded {excluded_count} URLs matching --exclude patterns")
@@ -211,6 +236,11 @@ async def _run(
             typer.echo("    ERR  No URLs left to crawl after applying excludes.")
             raise typer.Exit(1)
 
+    # ── Apply --max-pages limit ──────────────────────────────────────────────
+    if max_pages > 0 and len(urls) > max_pages:
+        typer.echo(f"[*] Limiting to {max_pages} pages (from {len(urls)} total)")
+        urls = urls[:max_pages]
+
     # ── Dry Run ─────────────────────────────────────────────────────────────
     if dry_run:
         avg_page_chars = 5_000  # Ước tính bình quân
@@ -219,23 +249,22 @@ async def _run(
         est_time = len(urls) / concurrency * 1.5  # seconds ước tính
 
         typer.echo("\n" + "-" * 50)
-        typer.echo(typer.style("[DRY RUN] Preview (khong crawl thuc te)", bold=True))
+        typer.echo(typer.style("[DRY RUN] Preview (no actual crawl)", bold=True))
         typer.echo("-" * 50)
         typer.echo(f"  URL          : {url}")
-        typer.echo(f"  Tong URL     : {len(urls)}")
+        typer.echo(f"  Total URLs   : {len(urls)}")
         typer.echo(f"  Format       : {fmt}")
         typer.echo(f"  Split limit  : {split_limit:,} chars")
-        import os
         base_name = os.path.basename(output)
         typer.echo(f"  Output       : {output}/{base_name}.{fmt}")
         typer.echo(f"  Est. size    : ~{est_chars:,} chars ({est_parts} part(s))")
         typer.echo(f"  Est. time    : ~{est_time:.0f}s")
         typer.echo("-" * 50)
-        typer.echo("\n  URL list (first 10):")
-        for u in urls[:10]:
+        typer.echo("\n  URL list (first 20):")
+        for u in urls[:20]:
             typer.echo(f"    - {u}")
-        if len(urls) > 10:
-            typer.echo(f"    ... and {len(urls) - 10} more URLs")
+        if len(urls) > 20:
+            typer.echo(f"    ... and {len(urls) - 20} more URLs")
         typer.echo()
         return
 
@@ -248,33 +277,55 @@ async def _run(
         with tqdm(total=len(urls), desc="Fetching", unit="page", ncols=80) as pbar:
             results = await fetcher.fetch_all(urls, progress_callback=pbar.update)
 
+    if _interrupted:
+        typer.echo(typer.style("\n[!] Interrupted during fetch. Processing downloaded pages...", fg=typer.colors.YELLOW))
+
     typer.echo("\n[*] Extracting and formatting content...")
 
-    seen_hashes = set()
-    import hashlib
+    seen_hashes: set[str] = set()
+    skipped_short = 0
+    skipped_dup = 0
+    skipped_err = 0
 
     for result in tqdm(results, desc="Processing", unit="page", ncols=80):
+        if _interrupted:
+            typer.echo(typer.style("[!] Saving partial output...", fg=typer.colors.YELLOW))
+            break
+
         page = _process_page(result, selector, ai_clean, ai_summary, fmt, collected_at, min_length)
         if page:
             # MD5 Deduplication
             content_hash = hashlib.md5(page["content"].encode('utf-8')).hexdigest()
             if content_hash in seen_hashes:
-                logger.warning(f"[SKIPPED] {page['url']} — Nội dung hoàn toàn trùng lặp (Duplicate)")
+                logger.warning(f"[SKIPPED] {page['url']} — Duplicate content")
+                skipped_dup += 1
                 continue
             
             seen_hashes.add(content_hash)
             pages_data.append(page)
+        elif result.skipped:
+            skipped_err += 1
+        else:
+            skipped_short += 1
 
+    total_skipped = len(urls) - len(pages_data)
     typer.echo(f"\n  [OK] Extracted: {len(pages_data)}/{len(urls)} pages")
-    skipped = len(urls) - len(pages_data)
-    if skipped > 0:
-        typer.echo(f"  [WARN] Skipped: {skipped} pages (see error.log)")
+    if total_skipped > 0:
+        parts = []
+        if skipped_err > 0:
+            parts.append(f"{skipped_err} errors")
+        if skipped_short > 0:
+            parts.append(f"{skipped_short} too short")
+        if skipped_dup > 0:
+            parts.append(f"{skipped_dup} duplicates")
+        detail = ", ".join(parts) if parts else "see error.log"
+        typer.echo(f"  [WARN] Skipped: {total_skipped} pages ({detail})")
 
     if not pages_data:
         typer.echo("    ERR  No content extracted.")
         raise typer.Exit(1)
 
-    # ── Phase 4: Write Output ───────────────────────────────────────────────
+    # ── Phase 3: Write Output ───────────────────────────────────────────────
     typer.echo(f"\n[*] Writing to directory {output}/ ...")
 
     with FileSplitter(output, fmt=fmt, split_limit=split_limit) as splitter:
@@ -283,7 +334,7 @@ async def _run(
             toc_pages = [{"title": p["title"], "url": p["url"]} for p in pages_data]
             splitter.write_header(build_toc(toc_pages))
         elif fmt == "txt":
-            splitter.write_header(f"SITE2MD — {url}\nThu thập: {collected_at}\n{'='*60}\n\n")
+            splitter.write_header(f"SITE2MD — {url}\nCollected: {collected_at}\n{'='*60}\n\n")
 
         # Ghi từng trang
         for page in pages_data:
@@ -294,14 +345,17 @@ async def _run(
 
     # ── Summary ─────────────────────────────────────────────────────────────
     typer.echo("\n" + "-" * 50)
-    typer.echo(typer.style("[DONE] Complete!", fg=typer.colors.GREEN, bold=True))
+    if _interrupted:
+        typer.echo(typer.style("[PARTIAL] Saved partial output!", fg=typer.colors.YELLOW, bold=True))
+    else:
+        typer.echo(typer.style("[DONE] Complete!", fg=typer.colors.GREEN, bold=True))
     typer.echo(f"  Pages OK     : {len(pages_data)}")
     typer.echo(f"  Output files : {splitter.total_parts}")
     for f in splitter.output_files:
         size_kb = Path(f).stat().st_size / 1024
         typer.echo(f"    -> {f} ({size_kb:.1f} KB)")
-    if skipped > 0:
-        typer.echo(f"  Skipped      : {skipped} (see error.log)")
+    if total_skipped > 0:
+        typer.echo(f"  Skipped      : {total_skipped} (see error.log)")
     typer.echo("-" * 50 + "\n")
 
 
@@ -311,20 +365,23 @@ async def _run(
 
 @app.command()
 def main(
-    url: str = typer.Argument(..., help="URL gốc cần crawl (VD: https://docs.example.com/)"),
-    output: Optional[str] = typer.Option(None, "--output", "-o", help="Tên thư mục và prefix file (mặc định dựa theo URL)"),
-    fmt: str = typer.Option("md", "--format", "-f", help=f"Format output: {', '.join(VALID_FORMATS)}"),
-    concurrency: int = typer.Option(5, "--concurrency", "-c", help="Số request song song"),
-    use_cache: bool = typer.Option(False, "--cache", help="Bật HTTP cache cục bộ (24h)"),
-    split_limit: int = typer.Option(DEFAULT_SPLIT_LIMIT, "--split-limit", help="Giới hạn ký tự mỗi file"),
-    selector: Optional[str] = typer.Option(None, "--selector", help="CSS selector chỉ định vùng content"),
-    depth: int = typer.Option(0, "--depth", help="Crawl đệ quy (0=dùng sitemap, >0=depth crawl)"),
-    ai_clean: bool = typer.Option(False, "--ai-clean", help="Dùng Deepseek AI làm sạch Markdown"),
-    ai_summary: bool = typer.Option(False, "--ai-summary", help="Dùng AI tạo tóm tắt đầu mỗi trang"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Preview: liệt kê URLs và ước tính, không crawl"),
-    min_length: int = typer.Option(50, "--min-length", help="Bỏ qua các trang có độ dài nội dung ngắn hơn mức này"),
-    exclude: Optional[list[str]] = typer.Option(None, "--exclude", "-x", help="Bỏ qua các URL chứa chuỗi này (VD: -x zh-CN -x /tag/)"),
-    include: Optional[list[str]] = typer.Option(None, "--include", "-i", help="CHỈ giữ lại các URL chứa chuỗi này (VD: -i /docs/)"),
+    url: str = typer.Argument(..., help="Base URL to crawl (e.g.: https://docs.example.com/)"),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output folder/file prefix (default: auto from URL)"),
+    fmt: str = typer.Option("md", "--format", "-f", help=f"Output format: {', '.join(VALID_FORMATS)}"),
+    concurrency: int = typer.Option(5, "--concurrency", "-c", help="Concurrent requests"),
+    use_cache: bool = typer.Option(False, "--cache", help="Enable 24h HTTP cache"),
+    split_limit: int = typer.Option(DEFAULT_SPLIT_LIMIT, "--split-limit", help="Character limit per file"),
+    selector: Optional[str] = typer.Option(None, "--selector", help="CSS selector for content area"),
+    depth: int = typer.Option(0, "--depth", help="Recursive crawl depth (0=sitemap, >0=depth crawl)"),
+    ai_clean: bool = typer.Option(False, "--ai-clean", help="Use AI to format Markdown"),
+    ai_summary: bool = typer.Option(False, "--ai-summary", help="Use AI to generate page summaries"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview URLs without crawling"),
+    min_length: int = typer.Option(50, "--min-length", help="Skip pages shorter than this"),
+    exclude: Optional[list[str]] = typer.Option(None, "--exclude", "-x", help="Exclude URLs containing this string"),
+    include: Optional[list[str]] = typer.Option(None, "--include", "-i", help="Only keep URLs containing this string"),
+    max_pages: int = typer.Option(0, "--max-pages", help="Max pages to crawl (0=unlimited)"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed debug output"),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Minimal output (errors only)"),
 ):
     """
     Site2MD -- Crawl website and output Markdown optimized for NotebookLM / RAG.
@@ -335,11 +392,18 @@ def main(
       python main.py https://docs.example.com --format jsonl -o my_docs
       python main.py https://docs.example.com --depth 2 --selector "article.content"
       python main.py https://docs.example.com --dry-run
+      python main.py https://docs.example.com --max-pages 50
     """
+    # Configure log level based on verbose/quiet
+    if quiet:
+        import logging
+        logging.getLogger("site2md").setLevel(logging.ERROR)
+    elif verbose:
+        import logging
+        logging.getLogger("site2md").setLevel(logging.DEBUG)
+
     # Generate default output name based on URL if not provided
     if not output:
-        import re
-        from urllib.parse import urlparse
         parsed = urlparse(url)
         # e.g., docs.python.org/3/ -> docs.python.org_3
         base = parsed.netloc + parsed.path.replace('/', '_')
@@ -347,7 +411,6 @@ def main(
         base = re.sub(r'_+', '_', base)
         output = base if base else "default_scrape"
 
-    import os
     # Move all scrape folders inside the global 'output' folder
     output = os.path.join("output", output)
 
@@ -371,17 +434,18 @@ def main(
             fg=typer.colors.YELLOW,
         ))
 
-    typer.echo(typer.style("\n[*] Site2MD — Starting", bold=True))
-    typer.echo(f"  Target : {url}")
-    # Replace the redundant {output}/{output} log because output already contains the parent folder
-    import os
-    base_name = os.path.basename(output)
-    typer.echo(f"  Format : {fmt}  |  Output: {output}/{base_name}.{fmt}")
-    typer.echo(f"  Cache  : {'on' if use_cache else 'off'}  |  Concurrency: {concurrency}")
-    if selector:
-        typer.echo(f"  Selector: {selector}")
-    if ai_clean or ai_summary:
-        typer.echo(f"  AI     : {'clean ' if ai_clean else ''}{'summary' if ai_summary else ''}")
+    if not quiet:
+        typer.echo(typer.style("\n[*] Site2MD — Starting", bold=True))
+        typer.echo(f"  Target : {url}")
+        base_name = os.path.basename(output)
+        typer.echo(f"  Format : {fmt}  |  Output: {output}/{base_name}.{fmt}")
+        typer.echo(f"  Cache  : {'on' if use_cache else 'off'}  |  Concurrency: {concurrency}")
+        if max_pages > 0:
+            typer.echo(f"  Limit  : {max_pages} pages max")
+        if selector:
+            typer.echo(f"  Selector: {selector}")
+        if ai_clean or ai_summary:
+            typer.echo(f"  AI     : {'clean ' if ai_clean else ''}{'summary' if ai_summary else ''}")
 
     # Run async pipeline
     asyncio.run(_run(
@@ -399,6 +463,8 @@ def main(
         min_length=min_length,
         exclude=exclude,
         include=include,
+        max_pages=max_pages,
+        verbose=verbose,
     ))
 
 

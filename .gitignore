@@ -15,24 +15,18 @@ env/
 
 # Site2MD Specific
 .site2md_cache/
+.site2md_progress.json
 error.log
+error.log.*
 urls.txt
 err_jsonl.txt
 
-# Generated Output Directories
+# Generated Output — only ignore files inside output/ directory
 output/
-python_optimized/
-python_optimized_minlen/
-python_final/
-docs_python_org_3/
-docs_openclaw_ai/
-test_output/
-test_jsonl/
-test_split/
-*.*_output/
-*.md
-*.jsonl
-*.txt
-!requirements.txt
-!urls.txt
-!README.md
+
+# Test files (specific, not blanket *.md)
+test_output.md
+test_output_part2.md
+test_jsonl.jsonl
+test_jsonl_part2.jsonl
+test_openclaw.html

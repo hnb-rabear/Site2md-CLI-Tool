@@ -1,7 +1,8 @@
 """
-formatter/ai_refiner.py — Deepseek API integration cho --ai-clean và --ai-summary
+formatter/ai_refiner.py — AI API integration cho --ai-clean và --ai-summary
 """
 import re
+import time
 from typing import Optional
 
 from config import (
@@ -16,6 +17,11 @@ logger = setup_logger()
 
 _client = None
 
+# AI API retry settings
+AI_MAX_RETRIES = 3
+AI_RETRY_BACKOFF = 2.0  # seconds, exponential
+AI_REQUEST_TIMEOUT = 60  # seconds
+
 
 def _get_client():
     """Lazy init OpenAI client với Deepseek endpoint."""
@@ -28,6 +34,7 @@ def _get_client():
             _client = OpenAI(
                 api_key=DEEPSEEK_API_KEY,
                 base_url=DEEPSEEK_BASE_URL,
+                timeout=AI_REQUEST_TIMEOUT,
             )
         except ImportError:
             raise ImportError("Cần cài openai: pip install openai")
@@ -35,18 +42,30 @@ def _get_client():
 
 
 def _call_api(system_prompt: str, user_content: str) -> str:
-    """Gọi Deepseek API với error handling."""
+    """Gọi AI API với timeout và retry (exponential backoff)."""
     client = _get_client()
-    response = client.chat.completions.create(
-        model=DEEPSEEK_MODEL,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
-        ],
-        temperature=0.1,  # Ít creative, nhiều consistent
-        max_tokens=4096,
-    )
-    return response.choices[0].message.content or ""
+
+    for attempt in range(1, AI_MAX_RETRIES + 1):
+        try:
+            response = client.chat.completions.create(
+                model=DEEPSEEK_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+                temperature=0.1,  # Ít creative, nhiều consistent
+                max_tokens=4096,
+            )
+            return response.choices[0].message.content or ""
+
+        except Exception as e:
+            if attempt == AI_MAX_RETRIES:
+                raise  # Re-raise on last attempt
+            wait = AI_RETRY_BACKOFF * attempt
+            logger.warning(f"  ⚠️  AI API error (attempt {attempt}/{AI_MAX_RETRIES}): {e} — retrying in {wait:.0f}s...")
+            time.sleep(wait)
+
+    return ""
 
 
 def _chunk_text(text: str, max_chars: int = AI_MAX_CHUNK_CHARS) -> list[str]:
@@ -83,14 +102,14 @@ Quy tắc QUAN TRỌNG:
 1. GIỮ NGUYÊN toàn bộ nội dung, không thêm/bớt thông tin.
 2. Fix lỗi thụt lề code blocks (đảm bảo dùng ``` không phải indent).
 3. Chuẩn hóa bảng Markdown (| col | col |).
-4. Xóa các ký tự noise: \xa0, ​ (zero-width space), ký tự không in được.
+4. Xóa các ký tự noise: \\xa0, ​ (zero-width space), ký tự không in được.
 5. Đảm bảo có blank line trước/sau mỗi code block và table.
 6. Chỉ trả về Markdown, KHÔNG giải thích thêm gì."""
 
 
 def clean_markdown(text: str, url: str = "") -> str:
     """
-    Dùng Deepseek AI để chuẩn hóa Markdown (--ai-clean).
+    Dùng AI để chuẩn hóa Markdown (--ai-clean).
     Tự động chunk nếu content lớn.
     Fallback về text gốc nếu API lỗi.
     """

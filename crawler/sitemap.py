@@ -2,6 +2,7 @@
 crawler/sitemap.py — Sitemap discovery, parsing và recursive link crawling
 """
 import re
+from collections import deque
 from typing import Optional
 from urllib.parse import urljoin, urlparse
 
@@ -46,42 +47,48 @@ def _same_domain(url: str, base: str) -> bool:
 # Sitemap Discovery
 # ---------------------------------------------------------------------------
 
-def discover_sitemap_url(base_url: str) -> Optional[str]:
+def discover_sitemap_urls(base_url: str) -> list[str]:
     """
-    Tìm URL của sitemap.xml theo thứ tự ưu tiên:
-    1. robots.txt
+    Tìm tất cả sitemap URLs theo thứ tự ưu tiên:
+    1. robots.txt (có thể chứa NHIỀU Sitemap: directives)
     2. /sitemap.xml (mặc định)
     3. /sitemap_index.xml
-    Trả None nếu không tìm thấy.
+    Trả về list URLs (có thể rỗng).
     """
     parsed = urlparse(base_url)
     root = f"{parsed.scheme}://{parsed.netloc}"
+    found_sitemaps: list[str] = []
 
-    # 1. Thử đọc robots.txt
+    # 1. Thử đọc robots.txt — thu thập TẤT CẢ sitemap directives
     try:
         resp = httpx.get(f"{root}/robots.txt", headers=_HEADERS, timeout=10, follow_redirects=True)
         if resp.status_code == 200:
             for line in resp.text.splitlines():
-                if line.lower().startswith("sitemap:"):
-                    sitemap_url = line.split(":", 1)[1].strip()
-                    logger.info(f"  ✔ Sitemap từ robots.txt: {sitemap_url}")
-                    return sitemap_url
+                match = re.match(r'sitemap:\s*(.+)', line, re.IGNORECASE)
+                if match:
+                    sitemap_url = match.group(1).strip()
+                    if sitemap_url:
+                        found_sitemaps.append(sitemap_url)
+            if found_sitemaps:
+                for sm in found_sitemaps:
+                    logger.info(f"  ✔ Sitemap từ robots.txt: {sm}")
+                return found_sitemaps
     except Exception:
         pass
 
-    # 2. Fallback /sitemap.xml
+    # 2. Fallback: thử các path mặc định
     for candidate in ["/sitemap.xml", "/sitemap_index.xml", "/sitemap/"]:
         url = root + candidate
         try:
             resp = httpx.get(url, headers=_HEADERS, timeout=10, follow_redirects=True)
             if resp.status_code == 200 and "xml" in resp.headers.get("content-type", ""):
                 logger.info(f"  ✔ Sitemap tìm thấy tại: {url}")
-                return url
+                return [url]
         except Exception:
             pass
 
     logger.warning(f"  ✘ Không tìm thấy sitemap cho {base_url}")
-    return None
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -158,11 +165,11 @@ def crawl_recursive(
     Trả về danh sách URL đã deduplicated.
     """
     visited: set[str] = set()
-    queue: list[tuple[str, int]] = [(base_url, 0)]
+    queue: deque[tuple[str, int]] = deque([(base_url, 0)])
     found: list[str] = []
 
     while queue:
-        url, depth = queue.pop(0)
+        url, depth = queue.popleft()
         if url in visited or depth > max_depth:
             continue
         if _is_skippable(url):
